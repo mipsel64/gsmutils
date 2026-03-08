@@ -28,7 +28,10 @@ pub enum Command {
 
     /// Get a specific secret version
     Get {
+        /// Name of the secret to get
         name: String,
+
+        /// Target version to get. If not specified, the latest version will be returned
         #[clap(long, short = 'V')]
         version: Option<NonZero<usize>>,
     },
@@ -70,7 +73,7 @@ async fn handle_scan(
     exact: bool,
 ) {
     let mut stream = gsm::scan_stream(
-        &client,
+        client,
         gsm::ScanOptions {
             project_id: project_id.to_string(),
             raw_secret: raw_secret.as_bytes().to_vec(),
@@ -115,9 +118,9 @@ async fn handle_get(
     let get_result = gsm::access_secret(
         client,
         gsm::AccessSecretOptions {
-            filter: if version.is_some() {
+            filter: if let Some(version) = version {
                 gsm::AccessSecretFilter::Versions {
-                    versions: vec![version.unwrap().get()],
+                    versions: vec![version.into()],
                 }
             } else {
                 gsm::AccessSecretFilter::LatestOnly

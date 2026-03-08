@@ -9,7 +9,6 @@ use futures::StreamExt;
 use google_cloud_gax::paginator::ItemPaginator as _;
 use google_cloud_secretmanager_v1::{client::SecretManagerService, model::secret_version::State};
 
-
 pub async fn scan_stream(
     client: &SecretManagerService,
     opts: ScanOptions,
@@ -82,10 +81,7 @@ pub async fn scan_stream(
                     version_count,
                     found_in_versions,
                 };
-                if tx.send(Ok(res)).await.is_err() {
-                    // Receiver dropped, stop processing
-                    return;
-                }
+                let _ = tx.send(Ok(res)).await;
             }
         });
     }
@@ -256,7 +252,7 @@ fn basename(path: &str) -> &str {
 pub fn is_notfound(err: &eyre::Report) -> bool {
     err.chain().any(|cause| {
         if let Some(gax_err) = cause.downcast_ref::<google_cloud_gax::error::Error>() {
-            matches!(gax_err.status(), Some(status) if status.code == google_cloud_gax::error::rpc::Code::NotFound) 
+            matches!(gax_err.status(), Some(status) if status.code == google_cloud_gax::error::rpc::Code::NotFound)
         } else {
             false
         }
