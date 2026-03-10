@@ -21,7 +21,10 @@ pub enum Command {
     /// Scan for secrets containing a specific value
     Scan {
         #[clap(long, short = 's')]
-        raw_secret: String,
+        raw_secret: Option<String>,
+        #[clap(long, short = 'n')]
+        name: Option<String>,
+
         #[clap(long, short = 'E')]
         exact: bool,
     },
@@ -57,8 +60,19 @@ async fn main() {
         .expect("Build GSM client");
 
     match cmd.command {
-        Command::Scan { raw_secret, exact } => {
-            handle_scan(&client, &project_id, &raw_secret, exact).await;
+        Command::Scan {
+            raw_secret,
+            name,
+            exact,
+        } => {
+            handle_scan(
+                &client,
+                &project_id,
+                raw_secret.as_deref(),
+                name.as_deref(),
+                exact,
+            )
+            .await;
         }
         Command::Get { name, version } => {
             handle_get(&client, &project_id, &name, version).await;
@@ -69,15 +83,26 @@ async fn main() {
 async fn handle_scan(
     client: &SecretManagerService,
     project_id: &str,
-    raw_secret: &str,
+    raw_secret: Option<&str>,
+    name: Option<&str>,
     exact: bool,
 ) {
+    let input = match (raw_secret, name) {
+        (Some(raw_secret), None) => gsm::ScanInput::RawScret(raw_secret.as_bytes().to_vec()),
+        (None, Some(name)) => gsm::ScanInput::Name(name.to_string()),
+        _ => {
+            eprintln!("--raw-secret or --name at least one must be specified at a time");
+            std::process::exit(1);
+        }
+    };
+    let scan_by_name = matches!(input, gsm::ScanInput::Name(_));
+
     let mut stream = gsm::scan_stream(
         client,
         gsm::ScanOptions {
             project_id: project_id.to_string(),
-            raw_secret: raw_secret.as_bytes().to_vec(),
-            scan_mode: if exact {
+            input,
+            mode: if exact {
                 gsm::ScanMode::Exact
             } else {
                 gsm::ScanMode::Contains
@@ -94,14 +119,17 @@ async fn handle_scan(
         let res = res.expect("Reading scan result");
         println!("Found secret: {}", res.name);
         println!("  Self link: {}", res.self_link);
-        println!("  Version count: {}", res.version_count);
-        println!("  Found in versions:");
-        for version in res.found_in_versions {
-            println!(
-                "    - Version {} (latest: {})",
-                version.number, version.latest
-            );
+        if !scan_by_name {
+            println!("  Version count: {}", res.version_count);
+            println!("  Found in versions:");
+            for version in res.found_in_versions {
+                println!(
+                    "    - Version {} (latest: {})",
+                    version.number, version.latest
+                );
+            }
         }
+        println!("-------------------------------")
     }
 
     if empty {

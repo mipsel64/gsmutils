@@ -1,8 +1,14 @@
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub project_id: String,
-    pub raw_secret: Vec<u8>,
-    pub scan_mode: ScanMode,
+    pub input: ScanInput,
+    pub mode: ScanMode,
+}
+
+#[derive(Debug, Clone)]
+pub enum ScanInput {
+    RawScret(Vec<u8>),
+    Name(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,7 +20,6 @@ pub enum ScanMode {
 #[derive(Debug, Clone)]
 pub struct ScanResult {
     pub name: String,
-    pub data: Vec<u8>,
     pub self_link: String,
     pub version_count: usize,
     pub found_in_versions: Vec<Version>,

@@ -13,19 +13,21 @@ pub async fn scan_stream(
     client: &SecretManagerService,
     opts: ScanOptions,
 ) -> eyre::Result<Pin<Box<dyn futures::Stream<Item = eyre::Result<ScanResult>>>>> {
-    if opts.raw_secret.is_empty() {
+    let ScanOptions {
+        project_id,
+        input,
+        mode,
+    } = opts;
+
+    if let types::ScanInput::RawScret(ref raw) = input
+        && raw.is_empty()
+    {
         eyre::bail!("Secret to scan for cannot be empty");
     }
 
-    if opts.project_id.is_empty() {
+    if project_id.is_empty() {
         eyre::bail!("Project ID cannot be empty");
     }
-
-    let ScanOptions {
-        project_id,
-        raw_secret,
-        scan_mode,
-    } = opts;
 
     let (tx, rx) = async_channel::unbounded();
     let mut list = client
@@ -35,11 +37,32 @@ pub async fn scan_stream(
 
     while let Some(item) = list.next().await.transpose()? {
         let project_id = project_id.clone();
-        let raw_secret = raw_secret.clone();
+        let input = input.clone();
         let tx = tx.clone();
         let client = client.clone();
         tokio::spawn(async move {
             let name = basename(&item.name);
+
+            let raw_secret = match input {
+                ScanInput::RawScret(raw_secret) => raw_secret,
+                ScanInput::Name(find_name) => {
+                    let found = match mode {
+                        ScanMode::Exact => name == find_name,
+                        ScanMode::Contains => name.contains(&find_name),
+                    };
+                    if found {
+                        let res = ScanResult {
+                            name: name.to_string(),
+                            self_link: item.name.clone(),
+                            version_count: 0,
+                            found_in_versions: vec![],
+                        };
+                        let _ = tx.send(Ok(res)).await;
+                    }
+                    return;
+                }
+            };
+
             let result = access_secret(
                 &client,
                 AccessSecretOptions {
@@ -61,7 +84,7 @@ pub async fn scan_stream(
             let mut found_in_versions = vec![];
             let version_count = secrets.len();
             for secret in secrets {
-                let found = match scan_mode {
+                let found = match mode {
                     ScanMode::Exact => secret.data == raw_secret,
                     ScanMode::Contains => secret
                         .data
@@ -76,7 +99,6 @@ pub async fn scan_stream(
             if !found_in_versions.is_empty() {
                 let res = ScanResult {
                     name: name.to_string(),
-                    data: raw_secret,
                     self_link: item.name.clone(),
                     version_count,
                     found_in_versions,
